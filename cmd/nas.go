@@ -8,6 +8,7 @@ import (
 	"sort"
 
 	model "github.com/farzaaaan/nasblobsync/cmd/models"
+	"github.com/farzaaaan/nasblobsync/cmd/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +49,14 @@ func GetLocal(rootDir string) error {
 			return nil
 		}
 
-		fileMap[path] = model.FileDetails{
+		if utils.ShouldIgnoreFile(path) {
+			return nil
+		}
+		relPath, err := filepath.Rel(rootDir, path)
+		if err != nil {
+			return err
+		}
+		fileMap[relPath] = model.FileDetails{
 			LastModified: info.ModTime(),
 			Size:         info.Size(),
 		}

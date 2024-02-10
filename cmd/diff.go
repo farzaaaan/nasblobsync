@@ -28,13 +28,28 @@ var diffCmd = &cobra.Command{
 	},
 }
 
+var flattenCmd = &cobra.Command{
+	Use:   "flatten",
+	Short: "flaten the diff",
+	Run: func(cmd *cobra.Command, args []string) {
+		err := flatten("diff.json")
+		if err != nil {
+			fmt.Println("Error:", err)
+			os.Exit(1)
+		}
+
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(diffCmd)
+	diffCmd.AddCommand(flattenCmd)
 
 	diffCmd.Flags().StringVarP(&sourceFile, "source", "s", "file_details.json", "source file")
 	// diffCmd.MarkFlagRequired("source")
 
 	diffCmd.Flags().StringVarP(&compareFile, "compare", "c", "blob_details.json", "compare file")
+
 	// diffCmd.MarkFlagRequired("compare")
 }
 
@@ -109,6 +124,11 @@ func GetDiff(sourceFile, compareFile string) error {
 
 	fmt.Println("Differences saved to diff.json")
 
+	totalDiffSize := int(0)
+	for _, diff := range diffMap {
+		totalDiffSize += int(diff.Size / (1024 * 1024 * 1024))
+	}
+
 	meta := map[string]int{
 		"total_source_count":     len(sourceMap),
 		"total_compare_count":    len(compareMap),
@@ -116,6 +136,7 @@ func GetDiff(sourceFile, compareFile string) error {
 		"different_files_count":  differentFiles,
 		"size_mismatch_count":    sizeMismatch,
 		"modified_date_mismatch": modifiedDateMismatch,
+		"total_diff_size":        totalDiffSize,
 	}
 
 	metaData, err := json.MarshalIndent(meta, "", "  ")
@@ -136,6 +157,35 @@ func GetDiff(sourceFile, compareFile string) error {
 
 	fmt.Println("Diff metadata saved to diff_meta.json")
 
+	return nil
+}
+
+func flatten(diffJSONFile string) error {
+	diffData, err := ioutil.ReadFile(diffJSONFile)
+	if err != nil {
+		return err
+	}
+
+	var diffMap map[string]models.FileDetails
+	err = json.Unmarshal(diffData, &diffMap)
+	if err != nil {
+		return err
+	}
+
+	flattenFile, err := os.Create("diff_flat")
+	if err != nil {
+		return err
+	}
+	defer flattenFile.Close()
+
+	for path := range diffMap {
+		_, err := flattenFile.WriteString(strings.ToLower(path) + "\n")
+		if err != nil {
+			return err
+		}
+	}
+
+	fmt.Println("File paths flattened and saved to diff_flat")
 	return nil
 }
 

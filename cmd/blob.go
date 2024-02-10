@@ -11,6 +11,7 @@ import (
 
 	"github.com/Azure/azure-storage-blob-go/azblob"
 	"github.com/farzaaaan/nasblobsync/cmd/models"
+	"github.com/farzaaaan/nasblobsync/cmd/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -71,6 +72,11 @@ func GetBlob(storageAccount, container, storageAccountKeyOrConn string) error {
 		if err != nil {
 			return err
 		}
+
+		if utils.ShouldIgnoreFile(blobName) {
+			return nil
+		}
+
 		blobMap[blobName] = models.FileDetails{
 			LastModified: props.LastModified(),
 			Size:         props.ContentLength(),
