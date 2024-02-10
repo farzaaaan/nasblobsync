@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/farzaaaan/nasblobsync/cmd/models"
@@ -14,13 +15,14 @@ import (
 var (
 	sourceFile  string
 	compareFile string
+	prefix      string
 )
 
 var diffCmd = &cobra.Command{
 	Use:   "diff",
 	Short: "find diff",
 	Run: func(cmd *cobra.Command, args []string) {
-		err := GetDiff(sourceFile, compareFile)
+		err := GetDiff(sourceFile, compareFile, prefix)
 		if err != nil {
 			fmt.Println("Error:", err)
 			os.Exit(1)
@@ -49,11 +51,12 @@ func init() {
 	// diffCmd.MarkFlagRequired("source")
 
 	diffCmd.Flags().StringVarP(&compareFile, "compare", "c", "blob_details.json", "compare file")
+	diffCmd.Flags().StringVarP(&prefix, "prefix", "p", "", "prefix")
 
 	// diffCmd.MarkFlagRequired("compare")
 }
 
-func GetDiff(sourceFile, compareFile string) error {
+func GetDiff(sourceFile, compareFile, prefix string) error {
 
 	sourceData, err := ioutil.ReadFile(sourceFile)
 	if err != nil {
@@ -84,7 +87,12 @@ func GetDiff(sourceFile, compareFile string) error {
 	var missingKeys, differentFiles, sizeMismatch, modifiedDateMismatch int
 
 	for key, sourceDetails := range sourceMap {
-		compareDetails, exists := compareMap[key]
+		compareKey := key
+		// Add the prefix to the source key
+		if prefix != "" {
+			compareKey = filepath.Join(prefix, key)
+		}
+		compareDetails, exists := compareMap[compareKey]
 		if !exists {
 
 			diffMap[key] = sourceDetails
