@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 
 	model "github.com/farzaaaan/nasblobsync/cmd/models"
 	"github.com/farzaaaan/nasblobsync/cmd/utils"
@@ -36,9 +37,66 @@ func init() {
 	nasCmd.MarkFlagRequired("local-dir")
 }
 
-func GetLocal(rootDir string) error {
+type ConcurrentFileDetails struct {
+	sync.Mutex
+	FileDetails model.FileDetails
+}
 
-	fileMap := make(map[string]model.FileDetails)
+func GetLocal(rootDir string) error {
+	fileMap := make(map[string]*ConcurrentFileDetails)
+	var wg sync.WaitGroup
+	var mutex sync.Mutex
+
+	var workerFunc func(string)
+	workerFunc = func(path string) {
+		defer wg.Done()
+
+		info, err := os.Stat(path)
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+
+		if info.IsDir() {
+			err := filepath.Walk(path, func(subPath string, subInfo os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if subInfo.IsDir() {
+					return nil
+				}
+				if utils.ShouldIgnoreFile(subPath) {
+					return nil
+				}
+
+				relPath, err := filepath.Rel(rootDir, subPath)
+				if err != nil {
+					return err
+				}
+
+				mutex.Lock()
+				defer mutex.Unlock()
+
+				if _, ok := fileMap[relPath]; !ok {
+					fileMap[relPath] = &ConcurrentFileDetails{}
+				}
+
+				fileMap[relPath].Lock()
+				defer fileMap[relPath].Unlock()
+
+				fileMap[relPath].FileDetails = model.FileDetails{
+					LastModified: subInfo.ModTime(),
+					Size:         subInfo.Size(),
+				}
+
+				return nil
+			})
+			if err != nil {
+				fmt.Println("Error:", err)
+				return
+			}
+		}
+	}
 
 	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -46,19 +104,8 @@ func GetLocal(rootDir string) error {
 		}
 
 		if info.IsDir() {
-			return nil
-		}
-
-		if utils.ShouldIgnoreFile(path) {
-			return nil
-		}
-		relPath, err := filepath.Rel(rootDir, path)
-		if err != nil {
-			return err
-		}
-		fileMap[relPath] = model.FileDetails{
-			LastModified: info.ModTime(),
-			Size:         info.Size(),
+			wg.Add(1)
+			go workerFunc(path)
 		}
 		return nil
 	})
@@ -68,6 +115,21 @@ func GetLocal(rootDir string) error {
 		os.Exit(1)
 	}
 
+	wg.Wait()
+
+	finalFileMap := make(map[string]model.FileDetails)
+	for key, value := range fileMap {
+		value.Lock()
+		finalFileMap[key] = value.FileDetails
+		value.Unlock()
+	}
+
+	writeToFile(finalFileMap)
+
+	return nil
+}
+
+func writeToFile(fileMap map[string]model.FileDetails) {
 	var keys []string
 	for key := range fileMap {
 		keys = append(keys, key)
@@ -99,5 +161,4 @@ func GetLocal(rootDir string) error {
 	}
 
 	fmt.Println("File details saved to file_details.json")
-	return nil
 }
