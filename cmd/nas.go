@@ -42,11 +42,17 @@ type ConcurrentFileDetails struct {
 	FileDetails model.FileDetails
 }
 
+type Progress struct {
+	sync.Mutex
+	Processed int
+	Total     int
+}
+
 func GetLocal(rootDir string) error {
 	fileMap := make(map[string]*ConcurrentFileDetails)
 	var wg sync.WaitGroup
 	var mutex sync.Mutex
-
+	progress := Progress{}
 	var workerFunc func(string)
 	workerFunc = func(path string) {
 		defer wg.Done()
@@ -89,6 +95,11 @@ func GetLocal(rootDir string) error {
 					Size:         subInfo.Size(),
 				}
 
+				progress.Lock()
+				progress.Processed++
+				fmt.Printf("\rProgress: %d/%d", progress.Processed, progress.Total)
+				progress.Unlock()
+
 				return nil
 			})
 			if err != nil {
@@ -104,6 +115,16 @@ func GetLocal(rootDir string) error {
 		}
 
 		if info.IsDir() {
+			totalFiles, err := countFilesInDir(path)
+			if err != nil {
+				fmt.Println("Error:", err)
+				return nil
+			}
+
+			progress.Lock()
+			progress.Total += totalFiles
+			progress.Unlock()
+
 			wg.Add(1)
 			go workerFunc(path)
 		}
@@ -127,6 +148,22 @@ func GetLocal(rootDir string) error {
 	writeToFile(finalFileMap)
 
 	return nil
+}
+func countFilesInDir(dir string) (int, error) {
+	count := 0
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && !utils.ShouldIgnoreFile(path) {
+			count++
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
 }
 
 func writeToFile(fileMap map[string]model.FileDetails) {
@@ -160,5 +197,5 @@ func writeToFile(fileMap map[string]model.FileDetails) {
 		os.Exit(1)
 	}
 
-	fmt.Println("File details saved to file_details.json")
+	fmt.Print("\nFile details saved to file_details.json\n")
 }
