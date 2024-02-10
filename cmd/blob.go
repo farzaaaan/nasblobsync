@@ -8,6 +8,8 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/Azure/azure-storage-blob-go/azblob"
 	"github.com/farzaaaan/nasblobsync/cmd/models"
@@ -60,15 +62,21 @@ func GetBlob(storageAccount, container, accountKey, initialPrefix string) error 
 	ctx := context.Background()
 
 	var (
-		wg      sync.WaitGroup
-		mu      sync.Mutex
-		blobMap = make(map[string]models.FileDetails)
+		mu       sync.Mutex
+		blobMap  = make(map[string]models.FileDetails)
+		sema     = make(chan struct{}, 100) // Limit to 100 concurrent goroutines
+		progress int32
 	)
 
 	var processPrefix func(ctx context.Context, prefix string)
 	processPrefix = func(ctx context.Context, prefix string) {
-		defer wg.Done()
+		defer func() {
+			<-sema // Release a slot from the semaphore when the function exits
+		}()
 
+		defer atomic.AddInt32(&progress, 1)
+
+		// blobURL := containerURL.NewBlobURL(prefix)
 		blobList, err := containerURL.ListBlobsHierarchySegment(ctx, azblob.Marker{}, "/", azblob.ListBlobsSegmentOptions{})
 		if err != nil {
 			fmt.Println("Error:", err)
@@ -97,15 +105,20 @@ func GetBlob(storageAccount, container, accountKey, initialPrefix string) error 
 		for _, dir := range blobList.Segment.BlobPrefixes {
 			dirName := strings.TrimSuffix(strings.TrimPrefix(dir.Name, "/"+container+"/"), "/")
 			newPrefix := prefix + "/" + dirName
-			wg.Add(1)
+
+			// Acquire a slot from the semaphore before starting a new goroutine
+			sema <- struct{}{}
 			go processPrefix(ctx, newPrefix)
 		}
 	}
 
-	wg.Add(1)
+	// Acquire a slot from the semaphore to start the initial goroutine
+	sema <- struct{}{}
 	go processPrefix(ctx, initialPrefix)
 
-	wg.Wait()
+	for atomic.LoadInt32(&progress) < 1 {
+		time.Sleep(100 * time.Millisecond)
+	}
 
 	// Marshal and write to blob_details.json file
 	blobDetailsFile, err := os.Create("blob_details.json")
