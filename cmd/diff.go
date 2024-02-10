@@ -99,17 +99,14 @@ func GetDiff(sourceFile, compareFile, prefix string) error {
 			missingKeys++
 		} else {
 
-			if sourceDetails.LastModified != compareDetails.LastModified ||
-				sourceDetails.Size != compareDetails.Size {
+			if sourceDetails.Size != compareDetails.Size {
 
 				diffMap[key] = sourceDetails
 				differentFiles++
 				if sourceDetails.Size != compareDetails.Size {
 					sizeMismatch++
 				}
-				if !sourceDetails.LastModified.Equal(compareDetails.LastModified) {
-					modifiedDateMismatch++
-				}
+
 			}
 		}
 	}

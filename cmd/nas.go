@@ -92,8 +92,7 @@ func GetLocal(rootDir string) error {
 				defer fileMap[relPath].Unlock()
 
 				fileMap[relPath].FileDetails = model.FileDetails{
-					LastModified: subInfo.ModTime(),
-					Size:         subInfo.Size(),
+					Size: subInfo.Size(),
 				}
 
 				progress.Lock()

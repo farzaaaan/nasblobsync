@@ -78,8 +78,7 @@ func GetBlob(storageAccount, container, storageAccountKeyOrConn string) error {
 		}
 
 		blobMap[blobName] = models.FileDetails{
-			LastModified: props.LastModified(),
-			Size:         props.ContentLength(),
+			Size: props.ContentLength(),
 		}
 	}
 
