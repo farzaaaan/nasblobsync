@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	model "github.com/farzaaaan/nasblobsync/cmd/models"
@@ -79,7 +80,7 @@ func GetLocal(rootDir string) error {
 				if err != nil {
 					return err
 				}
-
+				relPath = strings.ReplaceAll(relPath, "\\", "/")
 				mutex.Lock()
 				defer mutex.Unlock()
 
