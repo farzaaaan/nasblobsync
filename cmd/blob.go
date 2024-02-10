@@ -9,7 +9,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/Azure/azure-storage-blob-go/azblob"
 	"github.com/farzaaaan/nasblobsync/cmd/models"
@@ -66,6 +65,7 @@ func GetBlob(storageAccount, container, accountKey, initialPrefix string) error 
 		blobMap  = make(map[string]models.FileDetails)
 		sema     = make(chan struct{}, 100) // Limit to 100 concurrent goroutines
 		progress int32
+		wg       sync.WaitGroup
 	)
 
 	var processPrefix func(ctx context.Context, prefix string)
@@ -75,6 +75,7 @@ func GetBlob(storageAccount, container, accountKey, initialPrefix string) error 
 		}()
 
 		defer atomic.AddInt32(&progress, 1)
+		defer wg.Done()
 
 		// blobURL := containerURL.NewBlobURL(prefix)
 		blobList, err := containerURL.ListBlobsHierarchySegment(ctx, azblob.Marker{}, "/", azblob.ListBlobsSegmentOptions{})
@@ -108,17 +109,17 @@ func GetBlob(storageAccount, container, accountKey, initialPrefix string) error 
 
 			// Acquire a slot from the semaphore before starting a new goroutine
 			sema <- struct{}{}
+			wg.Add(1)
 			go processPrefix(ctx, newPrefix)
 		}
 	}
 
 	// Acquire a slot from the semaphore to start the initial goroutine
 	sema <- struct{}{}
+	wg.Add(1)
 	go processPrefix(ctx, initialPrefix)
 
-	for atomic.LoadInt32(&progress) < 1 {
-		time.Sleep(100 * time.Millisecond)
-	}
+	wg.Wait() // Wait for all goroutines to finish
 
 	// Marshal and write to blob_details.json file
 	blobDetailsFile, err := os.Create("blob_details.json")
