@@ -63,22 +63,49 @@ func GetBlob(storageAccount, container, accountKey, initialPrefix string) error 
 	var (
 		mu       sync.Mutex
 		blobMap  = make(map[string]models.FileDetails)
-		sema     = make(chan struct{}, 100) // Limit to 100 concurrent goroutines
 		progress int32
 		wg       sync.WaitGroup
+		fileErr  error
 	)
+
+	var writeBlobDetails func()
+	writeBlobDetails = func() {
+		defer wg.Done()
+
+		// Marshal and write to blob_details.json file
+		blobDetailsFile, err := os.Create("blob_details.json")
+		if err != nil {
+			fileErr = err
+			return
+		}
+		defer blobDetailsFile.Close()
+
+		jsonData, err := json.MarshalIndent(blobMap, "", "  ")
+		if err != nil {
+			fileErr = err
+			return
+		}
+
+		_, err = blobDetailsFile.Write(jsonData)
+		if err != nil {
+			fileErr = err
+			return
+		}
+
+		fmt.Println("Blob details saved to blob_details.json")
+	}
 
 	var processPrefix func(ctx context.Context, prefix string)
 	processPrefix = func(ctx context.Context, prefix string) {
-		defer func() {
-			<-sema // Release a slot from the semaphore when the function exits
-		}()
-
 		defer atomic.AddInt32(&progress, 1)
 		defer wg.Done()
 
-		// blobURL := containerURL.NewBlobURL(prefix)
-		blobList, err := containerURL.ListBlobsHierarchySegment(ctx, azblob.Marker{}, "/", azblob.ListBlobsSegmentOptions{})
+		prefix = strings.Trim(prefix, "/")
+
+		// List blobs with hierarchy using ListBlobHierarchySegment
+		blobList, err := containerURL.ListBlobsHierarchySegment(ctx, azblob.Marker{}, "/", azblob.ListBlobsSegmentOptions{
+			Prefix: prefix,
+		})
 		if err != nil {
 			fmt.Println("Error:", err)
 			return
@@ -102,41 +129,20 @@ func GetBlob(storageAccount, container, accountKey, initialPrefix string) error 
 			}
 			mu.Unlock()
 		}
-
-		for _, dir := range blobList.Segment.BlobPrefixes {
-			dirName := strings.TrimSuffix(strings.TrimPrefix(dir.Name, "/"+container+"/"), "/")
-			newPrefix := prefix + "/" + dirName
-
-			// Acquire a slot from the semaphore before starting a new goroutine
-			sema <- struct{}{}
-			wg.Add(1)
-			go processPrefix(ctx, newPrefix)
-		}
 	}
 
 	// Acquire a slot from the semaphore to start the initial goroutine
-	sema <- struct{}{}
 	wg.Add(1)
 	go processPrefix(ctx, initialPrefix)
 
+	wg.Add(1)
+	go writeBlobDetails()
+
 	wg.Wait() // Wait for all goroutines to finish
 
-	// Marshal and write to blob_details.json file
-	blobDetailsFile, err := os.Create("blob_details.json")
-	if err != nil {
-		return err
-	}
-	defer blobDetailsFile.Close()
-
-	jsonData, err := json.MarshalIndent(blobMap, "", "  ")
-	if err != nil {
-		return err
-	}
-	_, err = blobDetailsFile.Write(jsonData)
-	if err != nil {
-		return err
+	if fileErr != nil {
+		return fileErr
 	}
 
-	fmt.Println("Blob details saved to blob_details.json")
 	return nil
 }
